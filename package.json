@@ -29,10 +29,12 @@
   "packageManager": "pnpm@10.20.0",
   "dependencies": {
     "@electric-sql/pglite": "^0.3.14",
+    "@leaderboard/core": "file:../leaderboard/packages/core",
     "date-fns": "^4.1.0",
     "eslint": "^9.39.1",
     "octokit": "^5.0.5",
-    "tsx": "^4.20.6"
+    "tsx": "^4.20.6",
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

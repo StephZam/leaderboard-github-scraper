@@ -1,21 +1,26 @@
-import { Activity, ActivityDefinition } from "@/types/db";
 import { subDays } from "date-fns";
-import { addActivities, addContributors, updateBotRoles } from "@/lib/db";
-import { octokit } from "@/lib/octokit";
+import { addNewContributors, updateBotRoles } from "@/lib/db";
+import { Octokit } from "octokit";
+import { ScraperContext } from "@leaderboard/core";
+import { ValidatedScraperConfig } from "@/lib/config";
+import { Activity, ActivityDefinition } from "@/lib/activity";
 
-const org = process.env.GITHUB_ORG!;
-
-// Track all bot users across all repositories
-const botUsers = new Set<string>();
+interface GitHubApiFetchOptions {
+  octokit: Octokit;
+  org: string;
+  repo: string;
+  since?: string;
+  branch?: string;
+  botUsers: Set<string>;
+}
 
 /**
  * Get all repositories from a GitHub organization
  * If since is provided, only get repositories updated since the date
- * @param org - The GitHub organization to get repositories from
- * @param since - The date to start getting repositories from based on the `updated_at` field (optional)
+ *
  * @returns An array of repositories
  */
-async function getRepositories(org: string, since?: string) {
+async function getRepositories({ octokit, org, since }: GitHubApiFetchOptions) {
   const repos = [];
 
   for await (const response of octokit.paginate.iterator(
@@ -57,7 +62,13 @@ async function getRepositories(org: string, since?: string) {
  * @param since - The date to start getting pull requests from based on the `updated_at` field (optional)
  * @returns An array of pull requests with their reviews
  */
-async function getPRsAndReviews(repo: string, since?: string) {
+async function getPRsAndReviews({
+  octokit,
+  org,
+  repo,
+  since,
+  botUsers,
+}: GitHubApiFetchOptions) {
   const pullRequests = [];
 
   let hasNextPage = true;
@@ -219,7 +230,13 @@ async function getPRsAndReviews(repo: string, since?: string) {
   return pullRequests;
 }
 
-async function getComments(repo: string, since?: string) {
+async function getComments({
+  octokit,
+  org,
+  repo,
+  since,
+  botUsers,
+}: GitHubApiFetchOptions) {
   console.log(`Fetching comments from ${repo}...`);
 
   const comments = await octokit.paginate(
@@ -251,11 +268,18 @@ async function getComments(repo: string, since?: string) {
 /**
  * Get all issues and assign events from a repository
  * If since is provided, only get issues updated since the date
+ * @param octokit - The Octokit instance to use for the API requests
  * @param repo - The repository to get issues from
  * @param since - The date to start getting issues from based on the `updated_at` field (optional)
  * @returns An array of issues
  */
-export async function getIssues(repo: string, since?: string) {
+async function getIssues({
+  octokit,
+  org,
+  repo,
+  since,
+  botUsers,
+}: GitHubApiFetchOptions) {
   const issues = [];
 
   let hasNextPage = true;
@@ -412,10 +436,13 @@ export async function getIssues(repo: string, since?: string) {
  * @param since - The date to start getting commits from based on the push event's `created_at` field (optional)
  * @returns An array of commits
  */
-export async function getCommitsFromPushEvents(
-  repo: string,
-  since?: string
-): ReturnType<typeof getBranchCommits> {
+async function getCommitsFromPushEvents({
+  octokit,
+  org,
+  repo,
+  since,
+  botUsers,
+}: GitHubApiFetchOptions): ReturnType<typeof getBranchCommits> {
   const commits = [];
 
   // Iterate through repository events using paginate.iterator
@@ -497,7 +524,12 @@ export async function getCommitsFromPushEvents(
   return commits;
 }
 
-export async function getBranchCommits(repo: string, branch: string) {
+async function getBranchCommits({
+  octokit,
+  org,
+  repo,
+  branch,
+}: GitHubApiFetchOptions) {
   const commits = await octokit.paginate(
     "GET /repos/{owner}/{repo}/commits",
     { owner: org, repo, sha: branch },
@@ -608,9 +640,9 @@ function activitiesFromComments(
 
     // Comment created
     activities.push({
-      slug: `${ActivityDefinition.COMMENT_CREATED}_${repo}#${comment.issue_number}_${comment.id}`,
+      slug: `${ActivityDefinition.COMMENTED}_${repo}#${comment.issue_number}_${comment.id}`,
       contributor: comment.author,
-      activity_definition: ActivityDefinition.COMMENT_CREATED,
+      activity_definition: ActivityDefinition.COMMENTED,
       title: `Commented on #${comment.issue_number}`,
       text: null,
       occured_at: new Date(comment.created_at),
@@ -722,9 +754,9 @@ function getActivitiesFromCommits(
     }
 
     activities.push({
-      slug: `${ActivityDefinition.COMMIT_CREATED}_${commit.branchName}_${commit.commitId}`,
+      slug: `${ActivityDefinition.COMMITED}_${commit.branchName}_${commit.commitId}`,
       contributor: commit.author,
-      activity_definition: ActivityDefinition.COMMIT_CREATED,
+      activity_definition: ActivityDefinition.COMMITED,
       title: `Pushed commit to ${commit.branchName}`,
       text: commit.commitMessage,
       occured_at: new Date(commit.committedDate),
@@ -737,18 +769,36 @@ function getActivitiesFromCommits(
   return activities;
 }
 
-async function main() {
-  const days = process.env.SCRAPE_DAYS && parseInt(process.env.SCRAPE_DAYS);
-  const since = days ? subDays(new Date(), days).toISOString() : undefined;
+export async function getActivities({
+  db,
+  scraperConfig: { octokit, githubOrg },
+  scrapeDays,
+}: ScraperContext<ValidatedScraperConfig>) {
+  const since = scrapeDays
+    ? subDays(new Date(), scrapeDays).toISOString()
+    : undefined;
 
-  for (const { name: repository } of await getRepositories(org, since)) {
+  const botUsers = new Set<string>();
+
+  const repositories = await getRepositories({
+    octokit,
+    org: githubOrg,
+    since,
+    repo: "",
+    botUsers,
+  });
+
+  const activities = [];
+
+  for (const { name: repository } of repositories) {
+    const opts = { octokit, org: githubOrg, repo: repository, since, botUsers };
     // Parallelize the fetching of activities from repository
     // and then combine the activities into a single array
-    const activities = await Promise.all([
-      getIssues(repository, since),
-      getComments(repository, since),
-      getPRsAndReviews(repository, since),
-      getCommitsFromPushEvents(repository, since),
+    const repoActivities = await Promise.all([
+      getIssues(opts),
+      getComments(opts),
+      getPRsAndReviews(opts),
+      scrapeDays ? getCommitsFromPushEvents(opts) : getBranchCommits(opts),
     ]).then(([issues, comments, pullRequests, commits]) => [
       // yields: Issue Opened, Issue Assigned, Issue Closed
       ...activitiesFromIssues(issues, repository),
@@ -760,15 +810,17 @@ async function main() {
       ...getActivitiesFromCommits(commits),
     ]);
 
-    findActivitiesWithDuplicateSlug(activities);
-
-    await addContributors(activities.map((a) => a.contributor));
-    await addActivities(activities);
+    activities.push(...repoActivities);
   }
+
+  const contributorUsernames = activities.map((a) => a.contributor);
+  await addNewContributors(db, contributorUsernames);
+
+  findActivitiesWithDuplicateSlug(activities);
 
   // Update all bot contributors' roles to 'bot'
   console.log(`Found ${botUsers.size} bot users`);
-  await updateBotRoles(Array.from(botUsers));
-}
+  await updateBotRoles(db, Array.from(botUsers));
 
-main();
+  return activities;
+}
