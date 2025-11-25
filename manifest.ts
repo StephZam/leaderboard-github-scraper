@@ -82,40 +82,6 @@ const manifest: ScraperManifest<ValidatedScraperConfig> = {
   // Gets the activities for the given repository.
   getActivities: getActivities,
 
-  // Defines the global aggregate definitions.
-  globalAggregateDefinitions: {
-    stars_received: {
-      name: "Stars",
-      description: "Total number of stars received for all repositories",
-      icon: "star",
-      async getAggregates() {
-        // TODO: Implement this
-        return [{ type: "number", value: 0 }];
-      },
-    },
-
-    total_forks: {
-      name: "Forks",
-      description: "Total number of forks created for all repositories",
-      icon: "git-fork",
-      async getAggregates() {
-        // TODO: Implement this
-        return [{ type: "number", value: 0 }];
-      },
-    },
-
-    contributors_count: {
-      name: "Contributors",
-      description:
-        "Total number of unique contributors that have contributed to any repository",
-      icon: "globe",
-      async getAggregates() {
-        // TODO: Implement this
-        return [{ type: "number", value: 0 }];
-      },
-    },
-  },
-
   // Defines the contributor aggregate definitions.
   contributorAggregateDefinitions: {
     pr_merge_turn_around_time: {
@@ -153,7 +119,6 @@ const manifest: ScraperManifest<ValidatedScraperConfig> = {
   // Defines the badge definitions.
   badgeDefinitions: {
     problem_solving: {
-      slug: "problem_solving",
       name: "Problem Solving",
       description:
         "Awarded for consistently solving problems through merged PRs",
