@@ -3,12 +3,14 @@
   "version": "1.0.0",
   "description": "GitHub scraper for Leaderboard",
   "type": "module",
+  "main": "./dist/index.js",
   "scripts": {
     "db:prepare": "tsx scripts/prepare.ts",
     "db:import": "tsx scripts/import.ts",
     "db:scrape": "tsx scripts/scrape.ts",
     "db:export": "tsx scripts/export.ts",
     "db:pre-build": "tsx scripts/pre-build.ts",
+    "build": "tsc --build",
     "lint": "eslint"
   },
   "keywords": [
